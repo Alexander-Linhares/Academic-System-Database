@@ -136,9 +136,10 @@ CREATE TYPE e_status_atividade AS ENUM (
 );
 
 CREATE TYPE e_shift AS ENUM (
-    'Matutino',
-    'Vespertino',
-    'Noturno'
+    'Morning',
+    'Afternoon',
+    'Evening',
+    'Full-Time'
 );
 
 CREATE TYPE e_dia_da_semana AS ENUM (
@@ -157,12 +158,12 @@ CREATE TYPE e_status_matricula AS ENUM (
     'Cancelado'
 );
 
-CREATE TYPE e_frequencia AS ENUM (
-    'Único',
-    'Diário',
-    'Semanal',
-    'Mensal',
-    'Anual'
+CREATE TYPE e_frequency AS ENUM (
+    'Unique',
+    'Daily',
+    'Weekly',
+    'Monthly',
+    'Yearly'
 );
 
 CREATE TYPE e_finalidade_ocupacao_sala AS ENUM (
@@ -194,7 +195,7 @@ CREATE DOMAIN d_insertion_audit AS TIMESTAMPTZ
 CREATE DOMAIN d_current_year AS SMALLINT
     DEFAULT (EXTRACT(YEAR FROM CURRENT_DATE)::SMALLINT);
 
-CREATE DOMAIN d_dia_da_semana_r AS e_dia_da_semana[] NOT NULL
+CREATE DOMAIN d_week_day AS e_dia_da_semana[] NOT NULL
     CONSTRAINT c_chk_eh_dia_da_semana_valido
         CHECK (cardinality(VALUE) <= 5 AND is_distinct(VALUE));
 

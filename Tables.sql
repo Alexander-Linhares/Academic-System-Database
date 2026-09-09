@@ -33,10 +33,24 @@ CREATE TABLE IF NOT EXISTS ACADEMIC_PERIODS (
     sequencial_number INTEGER NOT NULL,
     academic_year d_current_year NOT NULL,
 
+    LIKE TEMPLATE_AUDIT_TRAIL,
+
     period_range DATERANGE NOT NULL,
 
+    total_week GENERATED ALWAYS AS (
+        (upper(period_range) - lower(period_range))::SMALLINT / 7
+    ) STORED, 
+
+    -- Criar função que retorna booleano se um period_range esta sobrepondo outro e lançar uma exception impedindo a operação
+
     CONSTRAINT pk_academic_periods_id PRIMARY KEY
-        (term_type, sequencial_number, academic_year)
+        (term_type, sequencial_number, academic_year),
+
+    CONSTRAINT chk_academic_periods CHECK (
+        EXTRACT(YEAR FROM lower(period_range)) = academic_year
+        AND
+        EXTRACT(YEAR FROM (upper(period_range) - INTERVAL '1 day')) = academic_year
+    )
 );
 
 CREATE TABLE IF NOT EXISTS CERTIFICATIONS (
@@ -62,8 +76,8 @@ CREATE TABLE IF NOT EXISTS ADDRESSES (
     postal_code d_numeric_str UNIQUE NOT NULL,
     complement d_str50 NOT NULL DEFAULT 'Not informed',
     LIKE TEMPLATE_AUDIT_TRAIL,
-    CONSTRAINT c_pk_address PRIMARY KEY (id),
-    CONSTRAINT c_chk_postal_code_max_length CHECK (LENGTH(postal_code) = 8)
+    CONSTRAINT pk_address PRIMARY KEY (id),
+    CONSTRAINT chk_postal_code_max_length CHECK (LENGTH(postal_code) = 8)
 );
 
 CREATE TABLE IF NOT EXISTS PERSONS (
@@ -80,14 +94,16 @@ CREATE TABLE IF NOT EXISTS PERSONS (
     legal_sex e_legal_sex NOT NULL,
     address_id INTEGER NOT NULL,
     profession d_str100,
+
     LIKE TEMPLATE_AUDIT_TRAIL,
-    CONSTRAINT c_pk_person PRIMARY KEY (id),
-    CONSTRAINT c_fk_persons_address_id
+
+    CONSTRAINT pk_persons_id PRIMARY KEY (id),
+    CONSTRAINT fk_persons_address_id
         FOREIGN KEY (address_id)
         REFERENCES ADDRESSES (id)
         ON DELETE RESTRICT,
-    CONSTRAINT c_chk_persons_national_id_len CHECK(LENGTH(national_id) = 7),
-    CONSTRAINT c_chk_persons_tax_id_len CHECK(LENGTH(tax_id) = 11)
+    CONSTRAINT chk_persons_national_id_len CHECK(LENGTH(national_id) = 7),
+    CONSTRAINT chk_persons_tax_id_len CHECK(LENGTH(tax_id) = 11)
 );
 
 CREATE TABLE IF NOT EXISTS EMAILS
@@ -97,8 +113,8 @@ CREATE TABLE IF NOT EXISTS PHONES (
     number d_phone_number NOT NULL,
     person_id INTEGER NOT NULL,
     LIKE TEMPLATE_AUDIT_TRAIL,
-    CONSTRAINT c_pk_phone PRIMARY KEY (id),
-    CONSTRAINT c_fk_persons_person_id
+    CONSTRAINT pk_phone PRIMARY KEY (id),
+    CONSTRAINT fk_persons_person_id
         FOREIGN KEY (person_id)
         REFERENCES PERSONS (id)
         ON DELETE CASCADE
@@ -113,8 +129,8 @@ CREATE TABLE IF NOT EXISTS EMPLOYEES (
     weekly_hours SMALLINT NOT NULL,
     salary DECIMAL(10,2) NOT NULL,
     LIKE TEMPLATE_AUDIT_TRAIL,
-    CONSTRAINT c_pk_employee PRIMARY KEY (id),
-    CONSTRAINT c_fk_persons_employee_id
+    CONSTRAINT pk_employee PRIMARY KEY (id),
+    CONSTRAINT fk_persons_employee_id
         FOREIGN KEY (id)
         REFERENCES PERSONS (id)
         ON DELETE CASCADE
@@ -136,12 +152,12 @@ CREATE TABLE IF NOT EXISTS DEPARTMENTS (
     name d_str100 NOT NULL,
     ramal d_numeric_string,
     staff_id INTEGER NOT NULL,
-    CONSTRAINT c_pk_departments_id PRIMARY KEY (id),
-    CONSTRAINT c_fk_staffs_staff_id
+    CONSTRAINT pk_departments_id PRIMARY KEY (id),
+    CONSTRAINT fk_staffs_staff_id
         FOREIGN KEY (staff_id)
         REFERENCES STAFFS (id)
         ON DELETE RESTRICT,
-    CONSTRAINT c_chk_departments_ramal_len
+    CONSTRAINT chk_departments_ramal_len
         CHECK (LENGTH(ramal) = 4)
 );
 
@@ -176,17 +192,17 @@ CREATE TABLE IF NOT EXISTS DEPENDENT_GUARDIANS (
 
     LIKE TEMPLATE_AUDIT_TRAIL,
 
-    CONSTRAINT c_pk_guardian_dependent_id
-        PRIMARY KEY (guardian_id, dependent_id),
-    CONSTRAINT c_fk_persons_guardian_id
+    CONSTRAINT pk_dependent_guardians_id
+        PRIMARY KEY (dependent_id, guardian_id),
+    CONSTRAINT fk_persons_guardian_id
         FOREIGN KEY (guardian_id)
         REFERENCES PERSONS (id)
         ON DELETE RESTRICT,
-    CONSTRAINT c_fk_persons_dependent_id
+    CONSTRAINT fk_persons_dependent_id
         FOREIGN KEY (dependent_id)
         REFERENCES PERSONS (id)
         ON DELETE RESTRICT,
-    CONSTRAINT c_chk_dependent_cannot_be_the_own_guardian
+    CONSTRAINT chk_dependent_cannot_be_the_own_guardian
         CHECK (dependent_id <> guardian_id)
 );
 
@@ -277,64 +293,104 @@ CREATE TABLE IF NOT EXISTS COURSES (
 );
 
 CREATE TABLE IF NOT EXISTS CLASS_SECTIONS (
-    turma_id INTEGER GENERATED ALWAYS AS IDENTITY,
-    codigo BIGINT UNIQUE NOT NULL,
+    class_section_id INTEGER GENERATED ALWAYS AS IDENTITY,
+    code VARCHAR(5) NOT NULL,
+    shifts d_shifts NOT NULL,
 
-    CONSTRAINT pk_turma PRIMARY KEY (turma_id)
+    term_type e_term_type NOT NULL,
+    sequencial_number INTEGER NOT NULL,
+    academic_year d_current_year NOT NULL,
+
+    CONSTRAINT pk_class_sections_id PRIMARY KEY (class_section_id), 
+    CONSTRAINT uq_class_section_period_code UNIQUE
+        (term_type, sequencial_number, academic_year, code),
+    CONSTRAINT fk_course_enrollments_academic_period
+        FOREIGN KEY (term_type, sequencial_number, academic_year)
+        REFERENCES ACADEMIC_PERIODS (term_type, sequencial_number, academic_year)
+        ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS ACTIVITY_TYPES (
-    tipo_atividade_id INTEGER GENERATED ALWAYS AS IDENTITY,
-    tipo d_str200r,
-    criado_em d_auditoria_de_insercao,
-    atualizado_em d_auditoria_de_insercao,
-    nota_minima SMALLINT NOT NULL, --criar um domínio pra isso aqui
-    nota_maxima SMALLINT NOT NULL,
-    CONSTRAINT c_pk_tipo_atividade PRIMARY KEY (tipo_atividade_id)
+    id INTEGER GENERATED ALWAYS AS IDENTITY,
+    name d_str200 NOT NULL,
+    description d_str400 NOT NULL,
+
+    LIKE TEMPLATE_AUDIT_TRAIL,
+
+    min_grade SMALLINT NOT NULL, --criar um domínio pra isso aqui
+    max_grade SMALLINT NOT NULL,
+    CONSTRAINT pk_activity_type PRIMARY KEY (tipo_atividade_id)
 );
 
 CREATE TABLE IF NOT EXISTS ACTIVITIES (
-    atividade_id INTEGER GENERATED ALWAYS AS IDENTITY,
-    datahora_inicio d_auditoria_de_insercao,
-    datahora_fim TIMESTAMPTZ NOT NULL,
-    is_avaliativa BOOLEAN NOT NULL DEFAULT FALSE,
-    documento_url TEXT NOT NULL,
-    tipo_atividade_id INTEGER NOT NULL,
-    CONSTRAINT c_pk_atividade PRIMARY KEY (atividade_id),
-    CONSTRAINT c_atividade_deve_possuir_um_tipo
-        FOREIGN KEY (tipo_atividade_id)
-        REFERENCES TIPOS_ATIVIDADES (tipo_atividade_id)
+    id INTEGER GENERATED ALWAYS AS IDENTITY,
+    is_graded BOOLEAN NOT NULL DEFAULT FALSE,
+    attachment_urls JSONB NOT NULL,
+    activity_type_id INTEGER NOT NULL,
+    CONSTRAINT pk_activities_id PRIMARY KEY (id),
+    CONSTRAINT fk_activities_activity_type_id
+        FOREIGN KEY (activity_type_id)
+        REFERENCES ACTIVITY_TYPES (activity_type_id)
         ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS PROGRAM_ENROLLMENTS (
+    code_number BIGINT GENERATED ALWAYS AS IDENTITY,
+    subscription_timestamptz TIMESTAMPTZ NOT NULL,
+    status e_course_status NOT NULL,
+    
+    program_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+
+    term_type e_term_type NOT NULL,
+    sequencial_number INTEGER NOT NULL,
+    academic_year d_current_year NOT NULL,
+
+    LIKE TEMPLATE_AUDIT_TRAIL,
+
+    CONSTRAINT pk_course_enrollments_number PRIMARY KEY(code_number),
+    CONSTRAINT uq_course_enroolments_unique
+     UNIQUE (student_id, program_id, term_type,
+        sequencial_number, academic_year, code_number),
+    CONSTRAINT fk_course_enrollments_course_id
+        FOREIGN KEY (program_id)
+        REFERENCES PROGRAMS (id)
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_course_enrollments_student_id
+        FOREIGN KEY (student_id)
+        REFERENCES STUDENTS (id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_course_enrollments_academic_period
+        FOREIGN KEY (term_type, sequencial_number, academic_year)
+        REFERENCES ACADEMIC_PERIODS (term_type, sequencial_number, academic_year)
+        ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- 7. MATRICULA_CURSO
 CREATE TABLE IF NOT EXISTS COURSE_ENROLLMENTS (
-    numero_matricula BIGINT GENERATED ALWAYS AS IDENTITY,
-    data_matricula DATE NOT NULL,
-    status_conclusao e_status_conclusao_disciplina NOT NULL,
-    ano_cursado d_ano_atual_com_cadastro_default NOT NULL,
-    semestre_cursado SMALLINT NOT NULL,
-    media_final DECIMAL DEFAULT NULL,
-    disciplina_id INTEGER NOT NULL,
-    aluno_id INTEGER NOT NULL,
-    CONSTRAINT c_pk_matricula_disciplina PRIMARY KEY(numero_matricula),
-    CONSTRAINT c_fk_matricula_da_disciplina_deve_conter_uma_disciplina_associada
-        FOREIGN KEY (disciplina_id)
-        REFERENCES DISCIPLINAS (disciplina_id)
-        ON DELETE RESTRICT, -- Não permitirá apagar a disciplina se houver alguma matrícula disciplina
-    CONSTRAINT c_fk_matricula_da_disciplina_deve_conter_um_aluno_associado
+    enrollment_number BIGINT UNIQUE NOT NULL,
+    program_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+
+
+    status_matricula e_status_matricula NOT NULL DEFAULT 'Ativo',
+    datahora_matricula d_auditoria_de_insercao,
+    CONSTRAINT c_pk_matricula_curso PRIMARY KEY (curso_id, aluno_id),
+    CONSTRAINT c_fk_curso_id
+        FOREIGN KEY (curso_id)
+        REFERENCES CURSOS (curso_id),
+    CONSTRAINT c_fk_aluno_id
         FOREIGN KEY (aluno_id)
         REFERENCES ALUNOS (aluno_id)
-        ON DELETE CASCADE --Se o aluno for deletado da tabela todas as suas matrículas em disciplinas também serão
 );
 
 CREATE TABLE IF NOT EXISTS CLASSROOMS (
-    sala_id INTEGER GENERATED ALWAYS AS IDENTITY,
-    bloco CHAR(1) NOT NULL,
-    codigo_sala VARCHAR(6) UNIQUE NOT NULL,
-    refrigerada BOOLEAN NOT NULL DEFAULT FALSE,
-    numero_patrimonio TEXT UNIQUE NOT NULL,
-    capacidade SMALLINT NOT NULL,
-    CONSTRAINT c_pk_sala PRIMARY KEY (sala_id)
+    id INTEGER GENERATED ALWAYS AS IDENTITY,
+    block CHAR(1) NOT NULL,
+    code VARCHAR(6) UNIQUE NOT NULL,
+    amenities
+    max_capacity SMALLINT NOT NULL,
+    CONSTRAINT pk_classroom_id PRIMARY KEY (id)
 );
 
 -- Esta tabela não faz diferença possuir uma PRIMARY KEY, pois a estrutura é de grafos e não de dependência exclusiva.
@@ -354,7 +410,7 @@ CREATE TABLE IF NOT EXISTS PRE_REQUISITES (
         ON DELETE RESTRICT --um elemento do nó refernciado aqui não pode ser apagado na tabela de origem
 );
 
-CREATE TABLE IF NOT EXISTS COURSE_ASSIGNMENTS (
+CREATE TABLE IF NOT EXISTS TEACHER_ALLOCATIONS (
     alocacao_docente_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     disciplina_id INTEGER NOT NULL, -- Todo professor na alocação precisa estar associado a uma disciplina
     professor_id INTEGER NOT NULL,
@@ -468,23 +524,7 @@ CREATE TABLE IF NOT EXISTS QUALIFICATIONS (
         ON DELETE CASCADE
 );
 
--- 7. MATRICULA_CURSO
-CREATE TABLE IF NOT EXISTS PROGRAM_ENROLLMENTS (
-    enrollment_number BIGINT UNIQUE NOT NULL,
-    program_id INTEGER NOT NULL,
-    student_id INTEGER NOT NULL,
 
-
-    status_matricula e_status_matricula NOT NULL DEFAULT 'Ativo',
-    datahora_matricula d_auditoria_de_insercao,
-    CONSTRAINT c_pk_matricula_curso PRIMARY KEY (curso_id, aluno_id),
-    CONSTRAINT c_fk_curso_id
-        FOREIGN KEY (curso_id)
-        REFERENCES CURSOS (curso_id),
-    CONSTRAINT c_fk_aluno_id
-        FOREIGN KEY (aluno_id)
-        REFERENCES ALUNOS (aluno_id)
-);
 
 CREATE TABLE IF NOT EXISTS LESSONS (
     aula_id INTEGER GENERATED ALWAYS AS IDENTITY,
