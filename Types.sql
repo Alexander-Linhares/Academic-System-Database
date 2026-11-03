@@ -65,6 +65,7 @@ DROP DOMAIN IF EXISTS d_document                                    CASCADE;
 DROP DOMAIN IF EXISTS d_phone_number                                CASCADE;
 DROP DOMAIN IF EXISTS d_days_of_week                                CASCADE;
 DROP DOMAIN IF EXISTS d_insertion_audit                             CASCADE;
+DROP DOMAIN IF EXISTS d_classroom_amenities                         CASCADE;
 
 DROP DOMAIN IF EXISTS d_str50                          CASCADE;
 DROP DOMAIN IF EXISTS d_str100                         CASCADE;
@@ -531,11 +532,14 @@ CREATE DOMAIN d_insertion_audit AS TIMESTAMPTZ
 
 CREATE DOMAIN d_days_of_week AS e_day_of_week[]
     CONSTRAINT chk_day_of_week_is_valid
-        CHECK (cardinality(VALUE) <= 5 AND is_distinct(VALUE));
+        CHECK ((cardinality(VALUE) BETWEEN 1 AND 7) AND is_distinct(VALUE));
 
 CREATE DOMAIN d_shifts AS e_shift[]
     CONSTRAINT chk_shifts_is_valid
-        CHECK (cardinality(VALUE) <= 3 AND is_distinct(VALUE));
+        CHECK ((cardinality(VALUE) BETWEEN 1 AND 3) AND is_distinct(VALUE));
+
+CREATE DOMAIN d_classroom_amenities AS ACADEMIC.e_classroom_amenities[]
+    CONSTRAINT chk_amenities_is_distinct CHECK (is_distinct(VALUE));
 
 -- Campos de texto
 -- str = string; 50 indica quantidade de caracteres; r = required

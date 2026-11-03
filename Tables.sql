@@ -343,7 +343,7 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.PERIODS (
         -- A exclusão de um registro pai é evitada tanto em cascata quanto por meio de uma transação (no action)
         ON DELETE RESTRICT,
 
-    -- This check constraint prevents auto-referencing
+    -- This check constraint prevents self-referencing
     CONSTRAINT chk_periods_no_self_reference
         CHECK (id <> predecessor_period_id),
 
@@ -352,6 +352,19 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.PERIODS (
         (term_type = 'Trimester'    AND sequence_order BETWEEN 1 AND 3) OR
         (term_type = 'Quarter'      AND sequence_order BETWEEN 1 AND 4) OR
         (term_type = 'Annual'       AND sequence_order = 1)
+    ),
+
+    CONSTRAINT chk_term_type_week CHECK (
+        CASE
+            WHEN term_type = 'Quarter' THEN
+                total_week BETWEEN 8 AND 12
+            WHEN term_type = 'Trimester' THEN
+                total_week BETWEEN 10 AND 14
+            WHEN term_type = 'Semester' THEN
+                total_week BETWEEN 14 AND 26
+            WHEN term_type = 'Annual' THEN
+                total_week BETWEEN 40 AND 52
+        END
     ),
 
     -- Ao inserir um novo registro, essa constraint comparará se para o conjunto das colunas especificadas
@@ -596,7 +609,7 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.COURSES_ASSIGNMENTS (
         (status != 'Inactive' AND inactive_reason IS NULL)
     ),
 
-    CONSTRAINT ex_avoid_active_assignments_schedule_overlapping
+    CONSTRAINT ex_avoid_overlaps_active_schedule_assignments
         EXCLUDE USING gist (
             teacher_id WITH =,
             course_id WITH =,
@@ -612,7 +625,6 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_SECTIONS (
         ALWAYS AS IDENTITY,
     code                VARCHAR(5)          NOT NULL,
     academic_period_id  INTEGER             NOT NULL,
-    period_range        DATERANGE           NOT NULL,
 
     LIKE TEMPLATE_PLAIN_AUDIT,
 
@@ -624,17 +636,31 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_SECTIONS (
     CONSTRAINT fk_course_enrollments_period_range
         FOREIGN KEY (academic_period_id)
         REFERENCES ACADEMIC.PERIODS (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE
+        ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS ACADEMIC.SECTION_ASSIGNMENTS(
+    section_id INTEGER NOT NULL,
+    assignment_id INTEGER NOT NULL,
+
+    CONSTRAINT fk_section_assignments_section_id
+        FOREIGN KEY (section_id)
+        REFERENCES ACADEMIC.CLASS_SECTIONS (id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_section_assignments_assignment_id
+        FOREIGN KEY (assignment_id)
+        REFERENCES ACADEMIC.COURSES_ASSIGNMENTS (id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.CLASSROOMS (
-    id                  INTEGER         GENERATED
+    id                  INTEGER                     GENERATED
         ALWAYS AS IDENTITY,
-    block               CHAR(1)         NOT NULL,
-    code                VARCHAR(6)      NOT NULL,
-    amenity_tags        ACADEMIC
-        .e_classroom_amenities          NOT NULL,
-    capacity_override   SMALLINT        NOT NULL,
+    block               CHAR(1)                     NOT NULL,
+    code                VARCHAR(6)                  NOT NULL,
+    amenity_tags        d_classroom_amenities       DEFAULT '{}',
+    capacity_override   SMALLINT                    NOT NULL,
 
     CONSTRAINT pk_classroom_id PRIMARY KEY (id)
 );
@@ -804,29 +830,36 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.UPLOAD_PARTICIPANTS (
 -- considered in this clause, it's important to specify which schedule arrangements are related to it.
 -- 2. The system assumes the valid range based on class section's academic period valid date by default,
 -- So it also must be responsible for importing the valid range automatically before the schedule insertion.
-
+-- Assim que uma agenda for definida o sistema deve criar automaticamente todas as datas dentro do periodo valid_range.
+--
 CREATE TABLE IF NOT EXISTS ACADEMIC.SCHEDULES (
     id                  INTEGER          GENERATED
         ALWAYS AS IDENTITY,
     class_section_id    INTEGER          NOT NULL,
-    classroom_id        INTEGER          NOT NULL,
+    classroom_id        INTEGER          NULL,
     shifts              d_shifts         NOT NULL,
-    days_of_week        d_days_of_week   NOT NULL,
-    frequency           e_frequency      NOT NULL,
+    days_of_week        d_days_of_week   NULL,
+    frequency           e_frequency      NOT NULL
+        DEFAULT 'Daily',
+    repeat_every        SMALLINT         NOT NULL
+        DEFAULT 1,
     valid_range         DATERANGE        NULL,
     time_slot_limit     SMALLINT         NOT NULL,
+    status              ACADEMIC
+        .e_lifecycle_status              NOT NULL
+        DEFAULT 'Draft',
 
     CONSTRAINT pk_schedules_id PRIMARY KEY (id),
 
     CONSTRAINT fk_schedules_classroom_id
         FOREIGN KEY (classroom_id)
         REFERENCES ACADEMIC.CLASSROOMS (id)
-        ON DELETE RESTRICT,
+        ON DELETE SET NULL,
 
     CONSTRAINT fk_schedules_class_section_id
         FOREIGN KEY (class_section_id)
         REFERENCES ACADEMIC.CLASS_SECTIONS (id)
-        ON DELETE SET NULL,
+        ON DELETE RESTRICT,
 
     CONSTRAINT excl_schedules_without_overlaps
         EXCLUDE USING gist (
@@ -851,27 +884,24 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.LESSONS (
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.SESSIONS (
-    id                      INTEGER                      GENERATED
+    id                      BIGINT                      GENERATED
         ALWAYS AS IDENTITY,
     schedule_id             INTEGER                      NOT NULL,
-    lesson_id               INTEGER                      NOT NULL,
     session_date            DATE                         NOT NULL,
-    status                  ACADEMIC.e_session_status    NOT NULL,
-    assigned_time_slot      SMALLINT                     NOT NULL,
+    status                  ACADEMIC.e_session_status    NOT NULL
+        DEFAULT 'Scheduled',
 
     CONSTRAINT pk_sessions_id PRIMARY KEY (id),
 
     CONSTRAINT uq_sessions_natural_key UNIQUE
-        (schedule_id, session_date, assigned_time_slot),
+        (schedule_id, session_date),
 
     CONSTRAINT fk_sessions_schedule_id
         FOREIGN KEY (schedule_id) REFERENCES ACADEMIC.SCHEDULES (id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_sessions_lessons_id
-        FOREIGN KEY (lesson_id) REFERENCES ACADEMIC.LESSONS (id)
-        ON DELETE RESTRICT
+        ON DELETE CASCADE
 );
+
+CREATE INDEX idx_sessions_schedule_id ON ACADEMIC.SESSIONS (schedule_id);
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.ATTENDANCE_RECORDS (
     student_id          INTEGER     NOT NULL,
