@@ -1,0 +1,14 @@
+SELECT
+    schema_name,
+    schema_owner
+FROM information_schema.schemata
+    WHERE schema_name <> 'information_schema';
+
+DROP SCHEMA SECURITY CASCADE;
+DROP SCHEMA TEMPLATES CASCADE;
+DROP SCHEMA CORE CASCADE;
+DROP SCHEMA SALES CASCADE;
+DROP SCHEMA
+DROP SCHEMA ACADEMIC CASCADE;
+
+

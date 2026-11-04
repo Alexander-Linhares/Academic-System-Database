@@ -515,45 +515,45 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.PRE_REQUISITES (
         CHECK (requisite_id <> course_id)
 );
 
-CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_OFFERINGS (
+CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_MAP (
     id                  BIGINT      GENERATED
         ALWAYS AS IDENTITY,
     public_id           UUID        NOT NULL
         DEFAULT gen_random_uuid(),
     program_id          INTEGER     NOT NULL,
     version_code        CHAR(3)     NOT NULL,
-
-    start_period_id     INTEGER     NOT NULL,
-    end_period_id       INTEGER     NULL,
+    effective_range     DATERANGE   NOT NULL,
+    --start_period_id     INTEGER     NOT NULL,
+    --end_period_id       INTEGER     NULL,
     status              ACADEMIC
         .e_lifecycle_status         NOT NULL
         DEFAULT 'Draft',
 
     LIKE TEMPLATES.PLAIN_AUDIT,
 
-    CONSTRAINT pk_curriculum_offerings_id PRIMARY KEY (id),
+    CONSTRAINT pk_curriculum_map_id PRIMARY KEY (id),
 
-    CONSTRAINT uq_curriculum_offerings_public_id UNIQUE (public_id),
+    CONSTRAINT uq_curriculum_map_public_id UNIQUE (public_id),
 
-    CONSTRAINT uq_curriculum_offerings_code
+    CONSTRAINT uq_curriculum_map_code
         UNIQUE (program_id, version_code),
 
-    CONSTRAINT fk_curriculum_offerings_program_id
+    CONSTRAINT fk_curriculum_map_program_id
         FOREIGN KEY (program_id) REFERENCES ACADEMIC.PROGRAMS
-        ON DELETE RESTRICT,
-
-    CONSTRAINT fk_curriculum_offerings_start_period_id
-        FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
-        ON DELETE RESTRICT,
-
-    CONSTRAINT fk_curriculum_offerings_end_period_id
-        FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
         ON DELETE RESTRICT
+
+    --CONSTRAINT fk_curriculum_offerings_start_period_id
+    --    FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
+    --    ON DELETE RESTRICT,
+
+    --CONSTRAINT fk_curriculum_offerings_end_period_id
+    --    FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
+    --    ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
 
-    curriculum_offering_id  INTEGER     NOT NULL,
+    curriculum_map_id  INTEGER     NOT NULL,
     course_id               INTEGER     NOT NULL,
     academic_term_number    SMALLINT    NOT NULL,
     is_mandatory            BOOLEAN     NOT NULL
@@ -562,11 +562,11 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
     LIKE TEMPLATE_PLAIN_AUDIT,
 
     CONSTRAINT pk_curriculum_courses
-        PRIMARY KEY (course_id, curriculum_offering_id),
+        PRIMARY KEY (course_id, curriculum_map_id),
 
     CONSTRAINT fk_curriculum_courses_offering
-        FOREIGN KEY (curriculum_offering_id)
-        REFERENCES ACADEMIC.CURRICULUM_OFFERINGS (id)
+        FOREIGN KEY (curriculum_map_id)
+        REFERENCES ACADEMIC.CURRICULUM_MAP (id)
         ON DELETE RESTRICT,
 
     CONSTRAINT fk_curriculum_courses_course
@@ -585,74 +585,54 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
 -- - 'INACTIVE': Assignment ended naturally (COMPLETED) or was inactivated by administrative/schedule reasons.
 -- - 'CANCELLED': Record created by mistake (e.g., incorrect dates). Canceling a record frees the validity period for re-assignment.
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS ACADEMIC.COURSES_ASSIGNMENTS (
+CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_OFFERINGS (
     id                  INTEGER          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     course_id           INTEGER          NOT NULL,
     teacher_id          INTEGER          NOT NULL,
+    class_section_id    INTEGER          NOT NULL,
+    academic_period_id  INTEGER          NOT NULL,
     validity_period     DATERANGE        NOT NULL,
-    status              ACADEMIC
-        .e_course_assignment_status      NOT NULL
-        DEFAULT 'Active',
-    inactive_reason     ACADEMIC
-        .e_inactive_reason               NULL,
+    code                VARCHAR(10)      NOT NULL,
+    status              ACADEMIC.e_course_assignment_status
+                                         NOT NULL DEFAULT 'Active',
+    inactive_reason     ACADEMIC.e_inactive_reason
+                                         NULL,
 
-    CONSTRAINT fk_course_assignments_course_id
+    -- Permite referenciar esta chave composta em tabelas filhas se necessário
+    CONSTRAINT uq_class_offering_period_range
+        UNIQUE (id, validity_period),
+
+    -- Relacionamentos Globais
+    CONSTRAINT fk_class_offerings_course_id
         FOREIGN KEY (course_id) REFERENCES ACADEMIC.COURSES (id)
         ON DELETE CASCADE,
 
-    CONSTRAINT fk_course_assignments_teacher_id
+    CONSTRAINT fk_class_offerings_teacher_id
         FOREIGN KEY (teacher_id) REFERENCES ACADEMIC.TEACHERS (id)
         ON DELETE RESTRICT,
 
-    CONSTRAINT chk_course_assignments_inactive_reason_consistency CHECK (
+    CONSTRAINT fk_class_offerings_academic_period
+        FOREIGN KEY (academic_period_id, validity_period)
+        REFERENCES ACADEMIC.PERIODS (id, period_range)
+        ON DELETE RESTRICT,
+
+    -- Regra de consistência do motivo de inativação
+    CONSTRAINT chk_class_offerings_inactive_reason_consistency CHECK (
         (status = 'Inactive' AND inactive_reason IS NOT NULL) OR
         (status != 'Inactive' AND inactive_reason IS NULL)
     ),
 
-    CONSTRAINT ex_avoid_overlaps_active_schedule_assignments
+    -- Prevenção de choques de agenda do professor (GIST)
+    CONSTRAINT ex_avoid_teacher_schedule_overlaps
         EXCLUDE USING gist (
             teacher_id WITH =,
-            course_id WITH =,
             validity_period WITH &&
-        ) WHERE (status = 'Canceled')
+        ) WHERE (status != 'Canceled')
 );
 
-CREATE INDEX idx_course_assignment_course_id    ON ACADEMIC.COURSES_ASSIGNMENTS (course_id);
-CREATE INDEX idx_course_assignment_teacher_id   ON ACADEMIC.COURSES_ASSIGNMENTS (teacher_id);
-
-CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_SECTIONS (
-    id                  INTEGER             GENERATED
-        ALWAYS AS IDENTITY,
-    code                VARCHAR(5)          NOT NULL,
-    academic_period_id  INTEGER             NOT NULL,
-
-    LIKE TEMPLATE_PLAIN_AUDIT,
-
-    CONSTRAINT pk_class_sections_id PRIMARY KEY (id),
-
-    CONSTRAINT uq_class_section_period_code UNIQUE
-        (academic_period_id, code),
-
-    CONSTRAINT fk_course_enrollments_period_range
-        FOREIGN KEY (academic_period_id)
-        REFERENCES ACADEMIC.PERIODS (id)
-        ON DELETE RESTRICT
-);
-
-CREATE TABLE IF NOT EXISTS ACADEMIC.SECTION_ASSIGNMENTS(
-    section_id INTEGER NOT NULL,
-    assignment_id INTEGER NOT NULL,
-
-    CONSTRAINT fk_section_assignments_section_id
-        FOREIGN KEY (section_id)
-        REFERENCES ACADEMIC.CLASS_SECTIONS (id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_section_assignments_assignment_id
-        FOREIGN KEY (assignment_id)
-        REFERENCES ACADEMIC.COURSES_ASSIGNMENTS (id)
-        ON DELETE CASCADE
-);
+CREATE INDEX idx_class_offerings_teacher_id ON ACADEMIC.CLASS_OFFERINGS (teacher_id);
+CREATE INDEX idx_class_offerings_section_id ON ACADEMIC.CLASS_OFFERINGS (class_section_id);
+CREATE INDEX idx_class_offerings_course_id ON ACADEMIC.CLASS_OFFERINGS (course_id);
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.CLASSROOMS (
     id                  INTEGER                     GENERATED
@@ -835,16 +815,16 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.UPLOAD_PARTICIPANTS (
 CREATE TABLE IF NOT EXISTS ACADEMIC.SCHEDULES (
     id                  INTEGER          GENERATED
         ALWAYS AS IDENTITY,
-    class_section_id    INTEGER          NOT NULL,
+    class_offering_id    INTEGER         NOT NULL,
     classroom_id        INTEGER          NULL,
-    shifts              d_shifts         NOT NULL,
-    days_of_week        d_days_of_week   NULL,
+    days_of_week        INTEGER[]        NULL,
+    start_time          TIME             NOT NULL,
+    end_time            TIME             NOT NULL,
+
     frequency           e_frequency      NOT NULL
         DEFAULT 'Daily',
     repeat_every        SMALLINT         NOT NULL
         DEFAULT 1,
-    valid_range         DATERANGE        NULL,
-    time_slot_limit     SMALLINT         NOT NULL,
     status              ACADEMIC
         .e_lifecycle_status              NOT NULL
         DEFAULT 'Draft',
@@ -856,18 +836,17 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.SCHEDULES (
         REFERENCES ACADEMIC.CLASSROOMS (id)
         ON DELETE SET NULL,
 
-    CONSTRAINT fk_schedules_class_section_id
-        FOREIGN KEY (class_section_id)
-        REFERENCES ACADEMIC.CLASS_SECTIONS (id)
+    CONSTRAINT fk_schedules_class_offering_id
+        FOREIGN KEY (class_offering_id)
+        REFERENCES ACADEMIC.CLASS_OFFERINGS (id)
         ON DELETE RESTRICT,
 
     CONSTRAINT excl_schedules_without_overlaps
         EXCLUDE USING gist (
-            classroom_id                                        WITH =,
-            ACADEMIC.days_to_intarray(days_of_week)     WITH &&,
-            ACADEMIC.shifts_to_intarray(shifts)        WITH &&,
-            valid_range                                        WITH &&
-        )
+            classroom_id WITH =,
+            days_of_week WITH &&,
+            ACADEMIC.timerange(start_time, end_time) WITH &&
+        ) WHERE (classroom_id IS NOT NULL AND STATUS NOT IN ('Draft', 'Suspended'))
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.LESSONS (
@@ -905,21 +884,21 @@ CREATE INDEX idx_sessions_schedule_id ON ACADEMIC.SESSIONS (schedule_id);
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.ATTENDANCE_RECORDS (
     student_id          INTEGER     NOT NULL,
-    booking_id          INTEGER     NOT NULL,
+    session_id          INTEGER     NOT NULL,
     is_present          BOOLEAN     NOT NULL
         DEFAULT FALSE,
     check_in_time       TIME        NULL,
     check_out_time      TIME        NULL,
 
     CONSTRAINT pk_attendance  PRIMARY KEY
-        (student_id, booking_id),
+        (student_id, session_id),
 
     CONSTRAINT fk_attendance_records_student_id
         FOREIGN KEY (student_id) REFERENCES ACADEMIC.STUDENTS (id)
         ON DELETE CASCADE,
 
     CONSTRAINT fk_attendance_records_booking_id
-        FOREIGN KEY (booking_id) REFERENCES ACADEMIC.SESSIONS (id)
+        FOREIGN KEY (session_id) REFERENCES ACADEMIC.SESSIONS (id)
         ON DELETE CASCADE,
 
     CONSTRAINT chk_attendance_check_times

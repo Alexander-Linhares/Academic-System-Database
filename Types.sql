@@ -81,6 +81,9 @@ CREATE SCHEMA ACADEMIC;
 CREATE SCHEMA SALES;
 CREATE SCHEMA ACCOUNTING;
 
+CREATE TYPE ACADEMIC.timerange AS RANGE (
+    subtype = time
+);
 -- ---------------------------- CRIAÇÃO DE TIPOS E DOMÍNIOS ----------------------------
 
 -- Classificação e Nível de Qualificação do Corpo Técnico-Administrativo (Staff)
