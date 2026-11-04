@@ -48,11 +48,11 @@ CREATE TABLE IF NOT EXISTS CORE.ADDRESSES (
         DEFAULT 'Not Informed',
     city_code           INTEGER             NOT NULL,
 
-    LIKE TEMPLATE_PLAIN_AUDIT,
+    LIKE TEMPLATES.PLAIN_AUDIT,
 
     CONSTRAINT pk_address_id PRIMARY KEY (id),
 
-    CONSTRAINT uq_address_postal_code UNIQUE (postal_code),
+    CONSTRAINT uq_address UNIQUE (postal_code, residence_number, complement),
 
     CONSTRAINT chk_address_postal_code_len
         CHECK (LENGTH(postal_code) = 8),
@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS CORE.PHONES (
     contact_type  CORE.e_contact_type    NOT NULL,
     person_id   INTEGER                  NOT NULL,
 
-    LIKE TEMPLATE_PLAIN_AUDIT,
+    LIKE TEMPLATES.PLAIN_AUDIT,
 
     CONSTRAINT pk_phone PRIMARY KEY (id),
 
@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS CORE.DEPENDENT_GUARDIANS (
     dependent_id    INTEGER             NOT NULL,
     familiar_bond   CORE.e_familiar_bond     NOT NULL,
 
-    LIKE TEMPLATE_PLAIN_AUDIT,
+    LIKE TEMPLATES.PLAIN_AUDIT,
 
     CONSTRAINT pk_dependent_guardians_id
         PRIMARY KEY (dependent_id, guardian_id),
@@ -229,7 +229,7 @@ CREATE TABLE IF NOT EXISTS CORE.EMPLOYEES (
     weekly_hours            SMALLINT                    NOT NULL,
     salary                  DECIMAL(10,2)               NOT NULL,
 
-    LIKE TEMPLATE_PLAIN_AUDIT,
+    LIKE TEMPLATES.PLAIN_AUDIT,
 
     CONSTRAINT pk_employee PRIMARY KEY (id),
 
@@ -420,14 +420,12 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.PROGRAMS (
     name                    d_str150                         NOT NULL,
     total_workload          SMALLINT                         NOT NULL,
     complementary_hours     SMALLINT                         NOT NULL,
-    default_shift           d_shifts                         NOT NULL,
     pedagogical_project     TEXT                             NOT NULL,
     accreditation_score     DECIMAL(3,2)                     NULL,
     department_id           INTEGER                          NOT NULL,
     coordinator_id          INTEGER                          NULL,
     status                  ACADEMIC.e_program_status        NOT NULL,
 
-    delivery_mode           ACADEMIC.e_delivery_mode         NOT NULL,
     educational_level       ACADEMIC.e_educational_level     NOT NULL,
     qualification_tier      ACADEMIC.e_qualification_tier    NOT NULL,
 
@@ -523,6 +521,8 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_MAP (
     program_id          INTEGER     NOT NULL,
     version_code        CHAR(3)     NOT NULL,
     effective_range     DATERANGE   NOT NULL,
+    delivery_mode       ACADEMIC.e_delivery_mode NOT NULL,
+    default_shift       d_shifts NOT NULL, -- estabelece o range de horários que aquela turma pode pegar 
     --start_period_id     INTEGER     NOT NULL,
     --end_period_id       INTEGER     NULL,
     status              ACADEMIC
@@ -542,24 +542,24 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_MAP (
         FOREIGN KEY (program_id) REFERENCES ACADEMIC.PROGRAMS
         ON DELETE RESTRICT
 
-    --CONSTRAINT fk_curriculum_offerings_start_period_id
+    --CONSTRAINT fk_CURRICULUM_MAP_start_period_id
     --    FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
     --    ON DELETE RESTRICT,
 
-    --CONSTRAINT fk_curriculum_offerings_end_period_id
+    --CONSTRAINT fk_CURRICULUM_MAP_end_period_id
     --    FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
     --    ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
 
-    curriculum_map_id  INTEGER     NOT NULL,
+    curriculum_map_id       BIGINT      NOT NULL,
     course_id               INTEGER     NOT NULL,
     academic_term_number    SMALLINT    NOT NULL,
     is_mandatory            BOOLEAN     NOT NULL
         DEFAULT TRUE,
 
-    LIKE TEMPLATE_PLAIN_AUDIT,
+    LIKE TEMPLATES.PLAIN_AUDIT,
 
     CONSTRAINT pk_curriculum_courses
         PRIMARY KEY (course_id, curriculum_map_id),
@@ -588,10 +588,11 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
 CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_OFFERINGS (
     id                  INTEGER          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     course_id           INTEGER          NOT NULL,
+    curriculum_map_id   BIGINT           NOT NULL,
     teacher_id          INTEGER          NOT NULL,
-    class_section_id    INTEGER          NOT NULL,
     academic_period_id  INTEGER          NOT NULL,
     validity_period     DATERANGE        NOT NULL,
+    delivery_mode       ACADEMIC.e_delivery_mode NOT NULL,
     code                VARCHAR(10)      NOT NULL,
     status              ACADEMIC.e_course_assignment_status
                                          NOT NULL DEFAULT 'Active',
@@ -604,7 +605,8 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_OFFERINGS (
 
     -- Relacionamentos Globais
     CONSTRAINT fk_class_offerings_course_id
-        FOREIGN KEY (course_id) REFERENCES ACADEMIC.COURSES (id)
+        FOREIGN KEY (curriculum_map_id, course_id) REFERENCES 
+        ACADEMIC.CURRICULUM_COURSES (curriculum_map_id, course_id)
         ON DELETE CASCADE,
 
     CONSTRAINT fk_class_offerings_teacher_id
@@ -631,7 +633,6 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_OFFERINGS (
 );
 
 CREATE INDEX idx_class_offerings_teacher_id ON ACADEMIC.CLASS_OFFERINGS (teacher_id);
-CREATE INDEX idx_class_offerings_section_id ON ACADEMIC.CLASS_OFFERINGS (class_section_id);
 CREATE INDEX idx_class_offerings_course_id ON ACADEMIC.CLASS_OFFERINGS (course_id);
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.CLASSROOMS (
@@ -652,7 +653,7 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_ENROLLMENTS (
     status                      ACADEMIC
         .e_curriculum_enrollment_status
         DEFAULT 'Active'                        NOT NULL,
-    curriculum_offering_id      INTEGER         NOT NULL,
+    curriculum_map_id           BIGINT          NOT NULL,
     student_id                  INTEGER         NOT NULL,
     term_type                   ACADEMIC.e_term_type     NOT NULL,
     sequence_order              INTEGER         NOT NULL,
@@ -664,11 +665,11 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_ENROLLMENTS (
     CONSTRAINT pk_course_enrollments_number PRIMARY KEY(code_number),
 
     CONSTRAINT uq_course_enrollments_unique
-     UNIQUE (student_id, curriculum_offering_id, term_type,
-        sequence_order, academic_year, code_number),
+     UNIQUE (student_id, curriculum_map_id, term_type,
+        sequence_order, academic_year),
 
-    CONSTRAINT fk_course_enrollments_curriculum_offering
-        FOREIGN KEY (curriculum_offering_id) REFERENCES ACADEMIC.CURRICULUM_OFFERINGS
+    CONSTRAINT fk_course_enrollments_curriculum_map
+        FOREIGN KEY (curriculum_map_id) REFERENCES ACADEMIC.CURRICULUM_MAP
         ON DELETE RESTRICT,
 
     CONSTRAINT fk_course_enrollments_student_id
@@ -685,21 +686,21 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_ENROLLMENTS (
 -- Table: COURSE_ENROLLMENTS
 -- Students can re-enroll in cases when they have been reproved,
 -- or perhaps they'd like to remake it again or even if any troubles occurred with it.
--- Otherwise, it is disallowed for the same class_section.
+-- Otherwise, it is disallowed for the same class_offering.
 -- This happens because class sections which has a yearly period as high school programs does,
 -- are always renewed based on academic period changes.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS ACADEMIC.COURSE_ENROLLMENTS (
     course_id           INTEGER             NOT NULL,
     student_id          INTEGER             NOT NULL,
-    class_section_id    INTEGER             NOT NULL,
+    class_offering_id    INTEGER             NOT NULL,
     status              ACADEMIC
         .e_course_enrollment_status             NOT NULL
         DEFAULT 'Enrolled',
     signature_date      d_insertion_audit   NULL,
 
     CONSTRAINT pk_matricula_curso PRIMARY KEY
-        (student_id, course_id, class_section_id),
+        (student_id, course_id, class_offering_id),
 
     CONSTRAINT fk_course_enrollments_course_id
         FOREIGN KEY (course_id) REFERENCES ACADEMIC.COURSES
@@ -709,8 +710,8 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.COURSE_ENROLLMENTS (
         FOREIGN KEY (student_id) REFERENCES ACADEMIC.STUDENTS
         ON DELETE RESTRICT,
 
-    CONSTRAINT fk_course_enrollments_class_section_id
-        FOREIGN KEY (class_section_id) REFERENCES ACADEMIC.CLASS_SECTIONS
+    CONSTRAINT fk_course_enrollments_class_offering_id
+        FOREIGN KEY (class_offering_id) REFERENCES ACADEMIC.CLASS_OFFERINGS
         ON DELETE RESTRICT
 );
 
@@ -744,19 +745,19 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.ACTIVITIES (
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.APPLICATIONS (
     activity_id         INTEGER             NOT NULL,
-    class_section_id    INTEGER             NOT NULL,
+    class_offering_id    INTEGER             NOT NULL,
     status              ACADEMIC.e_application_status   NOT NULL,
     expiration_range    TSTZRANGE           NOT NULL,
 
     CONSTRAINT pk_applications_id
-        PRIMARY KEY (activity_id, class_section_id),
+        PRIMARY KEY (activity_id, class_offering_id),
 
     CONSTRAINT fk_applications_activity_id
         FOREIGN KEY (activity_id) REFERENCES ACADEMIC.ACTIVITIES (id)
         ON DELETE RESTRICT,
 
-    CONSTRAINT fk_applications_class_section_id
-        FOREIGN KEY (class_section_id) REFERENCES ACADEMIC.CLASS_SECTIONS (id)
+    CONSTRAINT fk_applications_class_offering_id
+        FOREIGN KEY (class_offering_id) REFERENCES ACADEMIC.CLASS_OFFERINGS (id)
         ON DELETE CASCADE
 );
 
@@ -764,7 +765,7 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.UPLOADS (
     id                      INTEGER             GENERATED
         ALWAYS AS IDENTITY,
     activity_id             INTEGER             NOT NULL,
-    class_section_id        INTEGER             NOT NULL,
+    class_offering_id        INTEGER             NOT NULL,
     submitted_documents     d_document          NOT NULL,
     uploaded_at             TIMESTAMPTZ         NOT NULL
         DEFAULT CURRENT_TIMESTAMP,
@@ -776,8 +777,8 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.UPLOADS (
     CONSTRAINT pk_uploads_id       PRIMARY KEY (id),
 
     CONSTRAINT fk_uploads_application_id
-        FOREIGN KEY                      (activity_id, class_section_id)
-        REFERENCES ACADEMIC.APPLICATIONS (activity_id, class_section_id)
+        FOREIGN KEY                      (activity_id, class_offering_id)
+        REFERENCES ACADEMIC.APPLICATIONS (activity_id, class_offering_id)
         ON DELETE CASCADE,
 
     CONSTRAINT fk_uploads_owner_id
@@ -850,8 +851,9 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.SCHEDULES (
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.LESSONS (
-    id              INTEGER                      GENERATED
+    id                  INTEGER                  GENERATED
         ALWAYS AS IDENTITY,
+    class_offering_id   INTEGER                  NOT NULL
     title           d_str100                     NOT NULL,
     description     d_str400                     NOT NULL,
     delivery_mode   ACADEMIC.e_delivery_mode     NOT NULL,
@@ -859,7 +861,12 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.LESSONS (
 
     LIKE TEMPLATES.PUBLIC_TABLE INCLUDING ALL,
 
-    CONSTRAINT pk_lessons_id PRIMARY KEY (id)
+    CONSTRAINT pk_lessons_id PRIMARY KEY (id),
+
+    CONSTRAINT fk_lessons_class_offering_id 
+        FOREIGN KEY (class_offering_id)
+        REFERENCES CLASS_OFFERINGS (id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.SESSIONS (
@@ -884,7 +891,7 @@ CREATE INDEX idx_sessions_schedule_id ON ACADEMIC.SESSIONS (schedule_id);
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.ATTENDANCE_RECORDS (
     student_id          INTEGER     NOT NULL,
-    session_id          INTEGER     NOT NULL,
+    session_id          BIGINT      NOT NULL,
     is_present          BOOLEAN     NOT NULL
         DEFAULT FALSE,
     check_in_time       TIME        NULL,
