@@ -1,14 +1,13 @@
-CREATE OR REPLACE VIEW ACADEMIC.V_SCHEDULES AS
+CREATE OR REPLACE VIEW v_available_classes AS
     SELECT
-        id,
-        class_section_id,
-        classroom_id,
-        shifts,
-        days_of_week,
-        frequency,
-        frequency_type,
+        ROUND(
+            (COUNT(ce.student_id)::NUMERIC/NULLIF(co.total_available_seats, 0))*100,
+            2
+        ) AS occupation_percentage
+    FROM ACADEMIC.CLASS_OFFERINGS co
+        LEFT JOIN ACADEMIC.CLASS_ENROLLMENTS ce
+            ON ce.class_offering_id = co.id
+            AND ce.status = 'Enrolled'
+    GROUP BY co.id, co.total_available_seats;
 
-        valid_range,
-        time_slot_limit,
-        status
-    FROM ACADEMIC.SCHEDULES
+SELECT * FROM v_available_classes;
