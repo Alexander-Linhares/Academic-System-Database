@@ -47,7 +47,7 @@ DROP TYPE IF EXISTS ACADEMIC.e_admission_method                     CASCADE;
 DROP TYPE IF EXISTS ACADEMIC.e_quota_category                       CASCADE;
 DROP TYPE IF EXISTS ACADEMIC.e_application_status                   CASCADE;
 DROP TYPE IF EXISTS ACADEMIC.e_curriculum_enrollment_status         CASCADE;
-DROP TYPE IF EXISTS ACADEMIC.e_course_enrollment_status             CASCADE;
+DROP TYPE IF EXISTS ACADEMIC.e_class_enrollment_status              CASCADE;
 DROP TYPE IF EXISTS ACADEMIC.e_inactive_reason                      CASCADE;
 
 -- 6. DOMÍNIO ACADÊMICO: CORPO DOCENTE, SALAS E AULAS
@@ -144,7 +144,7 @@ CREATE TYPE CORE.e_legal_sex AS ENUM (
     'Male',
     'Female',
     'Other',
-    'Prefer Not To Say'
+    'N/I'
 );
 
 CREATE TYPE CORE.e_gender AS ENUM (
@@ -156,7 +156,7 @@ CREATE TYPE CORE.e_gender AS ENUM (
     'Agender',
     'Genderqueer',
     'Other',
-    'Prefer Not To Say'
+    'N/I'
 );
 
 CREATE TYPE ACADEMIC.e_delivery_mode AS ENUM (
@@ -266,7 +266,7 @@ CREATE TYPE ACADEMIC.e_educational_level AS ENUM (
     'Technical',
     'Undergraduate',
     'Postgraduate',
-    'Extension'
+    'Extension' --- acho q não deveria estar aqui para programs e sim em courses
 );
 
 -- Titulação / Modalidade Específica
@@ -320,30 +320,35 @@ CREATE TYPE ACADEMIC.e_lifecycle_status AS ENUM (
  -- Trancamento formal no prazo
  -- Matrícula anulada por algum motivo administrativo
  -- Dispensado / Aproveitamento de estudos
-CREATE TYPE ACADEMIC.e_course_enrollment_status AS ENUM (
+CREATE TYPE ACADEMIC.e_class_enrollment_status AS ENUM (
     'Enrolled',
     'In-Progress',
     'Approved',
     'Failed',
     'Withdraw',
     'Canceled',
-    'Exempted'
+    'Exempted',
+    'Waitlisted'
 );
 
 -- Situacao do Aluno no Curso / Programa
 -- 1. Ativo / Regularmente Matriculado
--- 2. Trancado (Suspensao temporal dos estudos)
--- 3. Formado / Graduado / Concluido
--- 4. Desistente / Evadido
--- 5. Transferido (Para outra IES ou outro curso)
--- 6. Jubilado / Desligado por Decisao Administrativa
+-- 2. Pendente / Falta documento ou algo do genero
+-- 3. Trancado (Suspensao temporal dos estudos)
+-- 4. Formado / Graduado / Concluido
+-- 5. Desistente / Evadido
+-- 6. Transferido (Para outra IES ou outro curso)
+-- 7. Jubilado / Desligado por Decisao Administrativa
+-- 8. Aguardando vaga
 CREATE TYPE ACADEMIC.e_curriculum_enrollment_status AS ENUM (
     'Active',
+    'Pending'
     'Suspended',
     'Graduated',
     'Dropped Out',
     'Transferred',
-    'Dismissed'
+    'Dismissed',
+    'Waitlisted'
 );
 
 CREATE TYPE ACADEMIC.e_activity_status AS ENUM (
@@ -382,9 +387,9 @@ CREATE TYPE ACADEMIC.e_classroom_amenities AS ENUM (
 );
 
 CREATE TYPE e_shift AS ENUM (
-    'Morning',
-    'Afternoon',
-    'Evening'
+    'Morning', -- 4 horas
+    'Afternoon', -- 4 horas
+    'Evening' -- 4 horas
 );
 
 CREATE TYPE e_day_of_week AS ENUM (

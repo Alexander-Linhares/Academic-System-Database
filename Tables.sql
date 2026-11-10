@@ -4,12 +4,12 @@
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE EXTENSION IF NOT EXISTS intarray;
 
-CREATE TABLE TEMPLATES.PLAIN_AUDIT (
+CREATE TABLE IF NOT EXISTS TEMPLATES.PLAIN_AUDIT (
     created_at      d_insertion_audit NOT NULL,
     last_update_at  d_insertion_audit NOT NULL
 );
 
-CREATE TABLE TEMPLATES.PUBLIC_TABLE (
+CREATE TABLE IF NOT EXISTS TEMPLATES.PUBLIC_TABLE (
     public_id UUID NOT NULL
         DEFAULT gen_random_uuid(),
 
@@ -37,22 +37,18 @@ CREATE TABLE IF NOT EXISTS CORE.MUNICIPALITIES (
         ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS CORE.ADDRESSES (
+CREATE TABLE IF NOT EXISTS CORE.STREETS (
     id                  INTEGER             GENERATED
         ALWAYS AS IDENTITY,
     street              d_str150            NOT NULL,
     neighborhood        d_str200            NOT NULL,
-    residence_number    SMALLINT            NOT NULL,
-    postal_code         d_str_digits_only   NOT NULL,
-    complement          d_str50             NOT NULL
-        DEFAULT 'Not Informed',
     city_code           INTEGER             NOT NULL,
+    postal_code         d_str_digits_only   NOT NULL,
 
-    LIKE TEMPLATES.PLAIN_AUDIT,
+    CONSTRAINT pk_streets_street_id PRIMARY KEY (id),
 
-    CONSTRAINT pk_address_id PRIMARY KEY (id),
-
-    CONSTRAINT uq_address UNIQUE (postal_code, residence_number, complement),
+    CONSTRAINT uq_streets_natural_key UNIQUE
+        (street, neighborhood, city_code, postal_code),
 
     CONSTRAINT chk_address_postal_code_len
         CHECK (LENGTH(postal_code) = 8),
@@ -62,6 +58,24 @@ CREATE TABLE IF NOT EXISTS CORE.ADDRESSES (
         ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS CORE.ADDRESSES (
+    id                  INTEGER             GENERATED
+        ALWAYS AS IDENTITY,
+    street_id           INTEGER             NOT NULL,
+    residence_number    SMALLINT            NOT NULL,
+    complement          d_str50             NOT NULL
+        DEFAULT 'Not Informed',
+
+    LIKE TEMPLATES.PLAIN_AUDIT,
+
+    CONSTRAINT pk_address_id PRIMARY KEY (id),
+
+    CONSTRAINT uq_address_natural_key UNIQUE (street_id, residence_number, complement),
+
+    CONSTRAINT fk_address_street_id FOREIGN KEY (street_id)
+        REFERENCES CORE.STREETS ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS CORE.PERSONS (
     id              INTEGER             GENERATED
         ALWAYS AS IDENTITY,
@@ -69,15 +83,18 @@ CREATE TABLE IF NOT EXISTS CORE.PERSONS (
         DEFAULT gen_random_uuid(),
     first_name      d_str100            NOT NULL,
     last_name       d_str200            NOT NULL,
-    preferred_name  d_str50             NULL,
+    preferred_name  d_str50             NULL
+        DEFAULT 'N/I',
     national_id     d_str_digits_only   NOT NULL,
     tax_id          d_str_digits_only   NOT NULL,
     date_of_birth   DATE                NOT NULL,
-    nationality     d_str150            NOT NULL,
+    nationality     d_str150            NOT NULL
+        DEFAULT 'Brazilian',
     gender          CORE.e_gender       NOT NULL,
     legal_sex       CORE.e_legal_sex    NOT NULL,
     address_id      INTEGER             NOT NULL,
-    profession      d_str100            NULL,
+    profession      d_str100            NULL
+        DEFAULT 'N/I',
 
     LIKE TEMPLATES.PLAIN_AUDIT,
 
@@ -142,7 +159,8 @@ CREATE TABLE IF NOT EXISTS CORE.CERTIFICATIONS (
     end_date                    DATE        NOT NULL,
     total_workload              SMALLINT    NOT NULL,
     institution_name            d_str150    NOT NULL,
-    experience_description      TEXT        NULL,
+    experience_description      TEXT        NULL
+        DEFAULT 'N/I',
 
     delivery_mode       ACADEMIC.e_delivery_mode         NOT NULL,
     educational_level   ACADEMIC.e_educational_level     NOT NULL,
@@ -253,7 +271,8 @@ CREATE TABLE IF NOT EXISTS CORE.DEPARTMENTS (
     id          INTEGER             GENERATED
         ALWAYS AS IDENTITY,
     name        d_str100            NOT NULL,
-    ramal       d_str_digits_only   NULL,
+    ramal       d_str_digits_only   NULL
+        DEFAULT 'N/S',
     staff_id    INTEGER             NOT NULL,
 
     CONSTRAINT pk_departments_id PRIMARY KEY (id),
@@ -332,8 +351,8 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.PERIODS (
     -- Na documentação do postgres - DDL/Constraints/foreign keys - diz que uma foreign key é uma coluna
     -- especificada, ou um grupo de colunas que necessitam corresponder com algum valor existente na tabela
     -- de referência. Para que a foreign key seja validada a tabela referenciada deve possuir o conjunto
-    -- de valores que se pretende corresponder. O tipo match simple de ligação permite com que qualquer
-    -- coluna de foreign key seja nula, de modo que, se a coluna for nula, o match não é executado.
+    -- de valores que se pretende corresponder. O tipo MATCH SIMPLE, permite que exista uma mistura entre colunas nulas ou não, de modo que,
+    -- se somente um dos valores forem nulos, o MATCH é ignorado, e a validação das chaves não é executado.
     CONSTRAINT fk_periods_predecessor
         FOREIGN KEY (predecessor_period_id, term_type)
         REFERENCES ACADEMIC.PERIODS (id, term_type)
@@ -367,13 +386,12 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.PERIODS (
         END
     ),
 
-    -- Ao inserir um novo registro, essa constraint comparará se para o conjunto das colunas especificadas
-    -- existe alguma outra linha com os mesmos valores, e então impedirá a operação se o retorno da comparação
-    -- for TRUE. É similar ao um Unique constraint, porém permite adicionar operadores de sobreposição (e
-    -- o operador deve garantir que é comutativo: A = B <=> B = A), necessitando também adicionar a extensão
-    -- do Btree-gist. Ou seja, se houver um term_type igual ao que se tenta inserir enquanto o period_range
-    -- é sobreposto a operação falha. A cláusula Where também pode ser especificada ao final da constraint
-    -- para delimitar um subconjunto onde essa regra valerá.
+    -- Ao inserir ou atualizar um registro, essa constraint compara se, para o conjunto das colunas especificadas,
+    -- existe alguma outra linha com os mesmos valores (ou intervalos sobrepostos via operador &&), impedindo a operação
+    -- se a comparação retornar TRUE. É similar a uma Unique Constraint, porém permite validar operadores de sobreposição
+    -- comutativos (A ⊕ B ⇔ B ⊕ A), exigindo a extensão btree_gist para tipos escalares. A cláusula WHERE pode ser especificada
+    -- ao final para limitar a aplicação da restrição a um subconjunto de linhas (registros que não satisfazem o WHERE ignoram
+    -- a checagem de exclusão).
     CONSTRAINT excl_periods_no_overlap
         EXCLUDE USING gist (
             term_type    WITH =,
@@ -471,7 +489,6 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.COURSES (
     }'::jsonb,
     total_credit_hours      SMALLINT                NOT NULL,
     expected_sessions       SMALLINT                NOT NULL,
-    delivery_mode           ACADEMIC.e_delivery_mode         NOT NULL,
     subscription_fee        DECIMAL(5,2)            NOT NULL,
     status                  ACADEMIC
         .e_lifecycle_status                         NOT NULL
@@ -513,7 +530,7 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.PRE_REQUISITES (
         CHECK (requisite_id <> course_id)
 );
 
-CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_MAP (
+CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_OFFERINGS (
     id                  BIGINT      GENERATED
         ALWAYS AS IDENTITY,
     public_id           UUID        NOT NULL
@@ -541,19 +558,11 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_MAP (
     CONSTRAINT fk_curriculum_map_program_id
         FOREIGN KEY (program_id) REFERENCES ACADEMIC.PROGRAMS
         ON DELETE RESTRICT
-
-    --CONSTRAINT fk_CURRICULUM_MAP_start_period_id
-    --    FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
-    --    ON DELETE RESTRICT,
-
-    --CONSTRAINT fk_CURRICULUM_MAP_end_period_id
-    --    FOREIGN KEY (start_period_id) REFERENCES ACADEMIC.PERIODS
-    --    ON DELETE RESTRICT
 );
 
-CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
+CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_MAP (
 
-    curriculum_map_id       BIGINT      NOT NULL,
+    curriculum_offering_id       BIGINT      NOT NULL,
     course_id               INTEGER     NOT NULL,
     academic_term_number    SMALLINT    NOT NULL,
     is_mandatory            BOOLEAN     NOT NULL
@@ -561,19 +570,19 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
 
     LIKE TEMPLATES.PLAIN_AUDIT,
 
-    CONSTRAINT pk_curriculum_courses
-        PRIMARY KEY (course_id, curriculum_map_id),
+    CONSTRAINT pk_curriculum_map
+        PRIMARY KEY (course_id, curriculum_offering_id),
 
-    CONSTRAINT fk_curriculum_courses_offering
-        FOREIGN KEY (curriculum_map_id)
-        REFERENCES ACADEMIC.CURRICULUM_MAP (id)
+    CONSTRAINT fk_curriculum_map_offering
+        FOREIGN KEY (curriculum_offering_id)
+        REFERENCES ACADEMIC.CURRICULUM_OFFERINGS (id)
         ON DELETE RESTRICT,
 
-    CONSTRAINT fk_curriculum_courses_course
+    CONSTRAINT fk_curriculum_map_course
         FOREIGN KEY (course_id) REFERENCES ACADEMIC.COURSES (id)
         ON DELETE RESTRICT,
 
-    CONSTRAINT chk_curriculum_courses_term_num
+    CONSTRAINT chk_curriculum_map_term_num
         CHECK (academic_term_number > 0)
 );
 
@@ -586,50 +595,59 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_COURSES (
 -- - 'CANCELLED': Record created by mistake (e.g., incorrect dates). Canceling a record frees the validity period for re-assignment.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_OFFERINGS (
-    id                  INTEGER          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    course_id           INTEGER          NOT NULL,
-    curriculum_map_id   BIGINT           NOT NULL,
-    teacher_id          INTEGER          NOT NULL,
-    academic_period_id  INTEGER          NOT NULL,
-    validity_period     DATERANGE        NOT NULL,
-    delivery_mode       ACADEMIC.e_delivery_mode NOT NULL,
-    code                VARCHAR(10)      NOT NULL,
-    status              ACADEMIC.e_course_assignment_status
+    id                       INTEGER          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    course_id                INTEGER          NOT NULL,
+    curriculum_offering_id   BIGINT           NOT NULL,
+    teacher_id               INTEGER          NOT NULL,
+    academic_period_id       INTEGER          NOT NULL,
+    --Allows an offer out of the conventional academic period for qualification courses
+    validity_period          DATERANGE        NOT NULL,
+    delivery_mode            ACADEMIC.e_delivery_mode NOT NULL,
+    code                     VARCHAR(10)      NOT NULL,
+    assignment_status        ACADEMIC.e_course_assignment_status
                                          NOT NULL DEFAULT 'Active',
-    inactive_reason     ACADEMIC.e_inactive_reason
+    inactive_reason          ACADEMIC.e_inactive_reason
                                          NULL,
+    -- Like a ticket time limit
+    reservation_deadline TSTZRANGE         NOT NULL
+        DEFAULT tstzrange(CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '25 days', '[)'),
+    total_seats_available SMALLINT       NOT NULL
+        DEFAULT 10,
 
-    -- Permite referenciar esta chave composta em tabelas filhas se necessário
     CONSTRAINT uq_class_offering_period_range
         UNIQUE (id, validity_period),
 
     -- Relacionamentos Globais
-    CONSTRAINT fk_class_offerings_course_id
-        FOREIGN KEY (curriculum_map_id, course_id) REFERENCES 
-        ACADEMIC.CURRICULUM_COURSES (curriculum_map_id, course_id)
-        ON DELETE CASCADE,
+    CONSTRAINT fk_class_offerings_curriculum_map
+        FOREIGN KEY (curriculum_offering_id, course_id) REFERENCES
+        ACADEMIC.CURRICULUM_MAP (curriculum_offering_id, course_id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
 
     CONSTRAINT fk_class_offerings_teacher_id
         FOREIGN KEY (teacher_id) REFERENCES ACADEMIC.TEACHERS (id)
         ON DELETE RESTRICT,
 
     CONSTRAINT fk_class_offerings_academic_period
-        FOREIGN KEY (academic_period_id, validity_period)
-        REFERENCES ACADEMIC.PERIODS (id, period_range)
+        FOREIGN KEY (academic_period_id)
+        REFERENCES ACADEMIC.PERIODS (id)
         ON DELETE RESTRICT,
 
     -- Regra de consistência do motivo de inativação
     CONSTRAINT chk_class_offerings_inactive_reason_consistency CHECK (
-        (status = 'Inactive' AND inactive_reason IS NOT NULL) OR
-        (status != 'Inactive' AND inactive_reason IS NULL)
+        (assignment_status = 'Inactive' AND inactive_reason IS NOT NULL) OR
+        (assignment_status != 'Inactive' AND inactive_reason IS NULL)
     ),
+
+    -- If the upper and lower boundaries are inverted the postgre engine will set it as empty
+    CONSTRAINT chk_class_offerings_deadline_integrity CHECK (
+        NOT isempty(reservation_deadline)),
 
     -- Prevenção de choques de agenda do professor (GIST)
     CONSTRAINT ex_avoid_teacher_schedule_overlaps
         EXCLUDE USING gist (
             teacher_id WITH =,
             validity_period WITH &&
-        ) WHERE (status != 'Canceled')
+        ) WHERE (assignment_status != 'Canceled')
 );
 
 CREATE INDEX idx_class_offerings_teacher_id ON ACADEMIC.CLASS_OFFERINGS (teacher_id);
@@ -653,11 +671,12 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_ENROLLMENTS (
     status                      ACADEMIC
         .e_curriculum_enrollment_status
         DEFAULT 'Active'                        NOT NULL,
-    curriculum_map_id           BIGINT          NOT NULL,
+    curriculum_offering_id      BIGINT          NOT NULL,
     student_id                  INTEGER         NOT NULL,
     term_type                   ACADEMIC.e_term_type     NOT NULL,
     sequence_order              INTEGER         NOT NULL,
     academic_year               SMALLINT        NOT NULL,
+    total_seats_available       SMALLINT        NOT NULL,
 
     LIKE TEMPLATES.PLAIN_AUDIT,
     LIKE TEMPLATES.PUBLIC_TABLE INCLUDING ALL,
@@ -665,11 +684,11 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_ENROLLMENTS (
     CONSTRAINT pk_course_enrollments_number PRIMARY KEY(code_number),
 
     CONSTRAINT uq_course_enrollments_unique
-     UNIQUE (student_id, curriculum_map_id, term_type,
+     UNIQUE (student_id, curriculum_offering_id, term_type,
         sequence_order, academic_year),
 
     CONSTRAINT fk_course_enrollments_curriculum_map
-        FOREIGN KEY (curriculum_map_id) REFERENCES ACADEMIC.CURRICULUM_MAP
+        FOREIGN KEY (curriculum_offering_id) REFERENCES ACADEMIC.CURRICULUM_OFFERINGS (id)
         ON DELETE RESTRICT,
 
     CONSTRAINT fk_course_enrollments_student_id
@@ -690,12 +709,12 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_ENROLLMENTS (
 -- This happens because class sections which has a yearly period as high school programs does,
 -- are always renewed based on academic period changes.
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS ACADEMIC.COURSE_ENROLLMENTS (
+CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_ENROLLMENTS (
     course_id           INTEGER             NOT NULL,
     student_id          INTEGER             NOT NULL,
     class_offering_id    INTEGER             NOT NULL,
     status              ACADEMIC
-        .e_course_enrollment_status             NOT NULL
+        .e_class_enrollment_status             NOT NULL
         DEFAULT 'Enrolled',
     signature_date      d_insertion_audit   NULL,
 
@@ -847,17 +866,22 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.SCHEDULES (
             classroom_id WITH =,
             days_of_week WITH &&,
             ACADEMIC.timerange(start_time, end_time) WITH &&
-        ) WHERE (classroom_id IS NOT NULL AND STATUS NOT IN ('Draft', 'Suspended'))
+        ) WHERE (classroom_id IS NOT NULL AND STATUS NOT IN ('Draft')),
+
+    CONSTRAINT chk_schedules_days_of_week_integrity CHECK (
+        is_distinct(days_of_week)
+        AND CARDINALITY(days_of_week) BETWEEN 1 AND 7
+    )
 );
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.LESSONS (
-    id                  INTEGER                  GENERATED
+    id                  INTEGER                      GENERATED
         ALWAYS AS IDENTITY,
-    class_offering_id   INTEGER                  NOT NULL
-    title           d_str100                     NOT NULL,
-    description     d_str400                     NOT NULL,
-    delivery_mode   ACADEMIC.e_delivery_mode     NOT NULL,
-    lesson_type     ACADEMIC.e_lesson_type       NOT NULL,
+    class_offering_id   INTEGER                      NOT NULL,
+    title               d_str100                     NOT NULL,
+    description         d_str400                     NOT NULL,
+    delivery_mode       ACADEMIC.e_delivery_mode     NOT NULL,
+    lesson_type         ACADEMIC.e_lesson_type       NOT NULL,
 
     LIKE TEMPLATES.PUBLIC_TABLE INCLUDING ALL,
 
@@ -865,7 +889,7 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.LESSONS (
 
     CONSTRAINT fk_lessons_class_offering_id 
         FOREIGN KEY (class_offering_id)
-        REFERENCES CLASS_OFFERINGS (id)
+        REFERENCES ACADEMIC.CLASS_OFFERINGS (id)
         ON DELETE CASCADE
 );
 
