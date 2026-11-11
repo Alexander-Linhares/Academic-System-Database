@@ -651,6 +651,12 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_OFFERINGS (
 );
 
 CREATE INDEX idx_class_offerings_teacher_id ON ACADEMIC.CLASS_OFFERINGS (teacher_id);
+
+-- terminar depois
+-- On invoke an index creation, ...
+
+CREATE INDEX idx_class_offerings_curriculum_offering_id ON ACADEMIC.CLASS_OFFERINGS (curriculum_offering_id, course_id);
+
 CREATE INDEX idx_class_offerings_course_id ON ACADEMIC.CLASS_OFFERINGS (course_id);
 
 CREATE TABLE IF NOT EXISTS ACADEMIC.CLASSROOMS (
@@ -718,7 +724,7 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.CLASS_ENROLLMENTS (
         DEFAULT 'Enrolled',
     signature_date      d_insertion_audit   NULL,
 
-    CONSTRAINT pk_matricula_curso PRIMARY KEY
+    CONSTRAINT pk_class_enrollments_compound_key PRIMARY KEY
         (student_id, course_id, class_offering_id),
 
     CONSTRAINT fk_course_enrollments_course_id
@@ -996,3 +1002,20 @@ CREATE TABLE IF NOT EXISTS ACADEMIC.ATTENDANCE_RECORDS (
 --     type,
 --     grant_rules
 -- );
+
+-- Para qual foi
+CREATE TABLE IF NOT EXISTS ACADEMIC.CURRICULUM_APPLICATION  (
+
+);
+
+CREATE TABLE IF NOT EXISTS ACADEMIC.ADMISSION_TYPES (
+
+);
+
+CREATE TABLE IF NOT EXISTS ACADEMIC.QUOTA_CATEGORIES (
+
+);
+
+CREATE TABLE IF NOT EXISTS ACADEMIC.PROGRAM_SCHOLARSHIPS (
+
+);
